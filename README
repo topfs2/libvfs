@@ -1,0 +1,20 @@
+This vfs library is designed to work the same way as if you were to use posix io. The library will fallback to local reading and is not needed to be added as a iohook for usage.
+
+To use the library use it exactly like any posix io:
+
+  struct vfs_file_descriptor *fp = vfs_open("temp", O_RDONLY);
+
+  char buffer[1024];
+  buffer[0] = '\0';
+
+  vfs_read(buffer, 1, 16, fp);
+  buffer[16] = '\0';
+
+  printf("%s\n", buffer);
+
+  vfs_close(fp);
+
+The library will have some iohook available but the library is designed around you choosing what you want to initialize, this way you are free to just use the library as a structure and add all iohooks you want. You can also use it only with compiled and available iohooks. Here is an example how you can initialize with all compiled in modules.
+
+  if (vfs_initialize_iohooks(vfs_all_iohooks))
+    printf("Failed to initialize all or some iohooks\n");
