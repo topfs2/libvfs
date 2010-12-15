@@ -14,6 +14,19 @@ To use the library use it exactly like any posix io:
 
   vfs_close(fp);
 
+Directories can be read and all content they have will have some set of mandatory properties but can have any number of extra metadata, this allows for extending the vfs hooks to provide metadata with the files. Its important though that the property gets freed after used, it will not be garbage collected.
+
+  struct vfs_directory_descriptor *dp = vfs_opendir("/foo/bar/");
+  struct vfs_properties *dir;
+
+  while ((dir = vfs_readdir(dp)) != NULL)
+  {
+    printf("%s\n", dir->name);
+    vfs_free_properties(dir);
+  }
+
+  vfs_closedir(dp);
+
 The library will have some iohook available but the library is designed around you choosing what you want to initialize, this way you are free to just use the library as a structure and add all iohooks you want. You can also use it only with compiled and available iohooks. Here is an example how you can initialize with all compiled in modules.
 
   if (vfs_initialize_iohooks(vfs_all_iohooks))
