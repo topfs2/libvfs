@@ -93,6 +93,20 @@ void vfs_handle_notifications(struct vfs_notification_callbacks *callbacks)
 {
 }
 
+void vfs_free_properties(struct vfs_properties *properties)
+{
+  if (properties)
+  {
+    free((char *)properties->name);
+    struct vfs_metadata *itr = properties->extended_metadata;
+
+    while (itr)
+      itr = (struct vfs_metadata *)vfs_free_metadata(itr);
+
+    free(properties);
+  }
+}
+
 struct vfs_file_descriptor *vfs_open(const char *filepath, int flags)
 {
   struct vfs_list_node *itr = g_IOHookList;
@@ -147,18 +161,18 @@ int vfs_flush(struct vfs_file_descriptor *fp)
     return 0;
 }
 
-int vfs_stat(const char *filepath, struct stat *buffer)
+struct vfs_properties *vfs_stat(const char *filepath)
 {
   struct vfs_list_node *itr = g_IOHookList;
   while (itr)
   {
     if (strncmp(filepath, itr->protocol, strlen(itr->protocol)) == 0)
-      return itr->iohook->stat(filepath, buffer);
+      return itr->iohook->stat(filepath);
 
     itr = itr->next;
   }
 
-  return vfs_file_iohooks.stat(filepath, buffer);
+  return vfs_file_iohooks.stat(filepath);
 }
 
 int vfs_close(struct vfs_file_descriptor *fp)
@@ -183,7 +197,7 @@ struct vfs_directory_descriptor *vfs_opendir(const char *directorypath)
   return vfs_file_iohooks.opendir(directorypath);
 }
 
-struct dirent *vfs_readdir(struct vfs_directory_descriptor *dp)
+struct vfs_properties *vfs_readdir(struct vfs_directory_descriptor *dp)
 {
   if (dp)
     return dp->iohook.readdir(dp);

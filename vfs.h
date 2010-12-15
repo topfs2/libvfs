@@ -21,6 +21,7 @@
  */
 
 #include "iohook.h"
+#include <fcntl.h>
 
 typedef void (*vfs_file_added_hook)   (const char *file);
 typedef void (*vfs_file_removed_hook) (const char *file);
@@ -48,17 +49,19 @@ int vfs_initialize_iohooks(int iohooks);
 int vfs_add_iohook(const char *protocol, struct vfs_iohook *hook);
 void vfs_handle_notifications(struct vfs_notification_callbacks *callbacks);
 
-struct    vfs_file_descriptor *   vfs_open      (const char *filepath, int flags);
+void                              vfs_free_properties(struct vfs_properties *properties);
+
+struct vfs_file_descriptor *      vfs_open      (const char *filepath, int flags);
 size_t                            vfs_read      (void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp);
 size_t                            vfs_write     (const void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp);
 int                               vfs_seek      (struct vfs_file_descriptor *fp, long int offset, int origin);
 long int                          vfs_tell      (struct vfs_file_descriptor *fp);
-int                               vfs_stat      (const char *filepath, struct stat *buffer);
+struct vfs_properties *           vfs_stat      (const char *filepath);
 int                               vfs_flush     (struct vfs_file_descriptor *fp);
 int                               vfs_close     (struct vfs_file_descriptor *fp);
 
 struct vfs_directory_descriptor * vfs_opendir   (const char *directorypath);
-struct dirent *                   vfs_readdir   (struct vfs_directory_descriptor *dp);
+struct vfs_properties *           vfs_readdir   (struct vfs_directory_descriptor *dp);
 void                              vfs_seekdir   (struct vfs_directory_descriptor *dp, long loc);
 void                              vfs_rewinddir (struct vfs_directory_descriptor *dp);
 long                              vfs_telldir   (struct vfs_directory_descriptor *dp);

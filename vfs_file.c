@@ -20,45 +20,11 @@
  */
 
 #include "vfs_file.h"
+#include "vfs_helpers.h"
 #include <stdio.h>
 #include <dirent.h>
-
-struct vfs_file_descriptor *vfs_file_open(const char *file, int flags);
-size_t vfs_file_read(void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp);
-size_t vfs_file_write(const void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp);
-int vfs_file_seek(struct vfs_file_descriptor *fp, long int offset, int origin);
-long int vfs_file_tell(struct vfs_file_descriptor *fp);
-int vfs_file_stat(const char *filepath, struct stat *buffer);
-int vfs_file_flush(struct vfs_file_descriptor *fp);
-int vfs_file_close(struct vfs_file_descriptor *fp);
-
-struct vfs_directory_descriptor *vfs_file_opendir(const char *directorypath);
-struct dirent *vfs_file_readdir(struct vfs_directory_descriptor *dp);
-void vfs_file_seekdir(struct vfs_directory_descriptor *dp, long loc);
-void vfs_file_rewinddir(struct vfs_directory_descriptor *dp);
-long vfs_file_telldir(struct vfs_directory_descriptor *dp);
-int vfs_file_closedir(struct vfs_directory_descriptor *dp);
-
-const struct vfs_iohook vfs_file_iohooks =
-{
-  vfs_file_open,
-  vfs_file_read,
-  vfs_file_write,
-  vfs_file_seek,
-  vfs_file_tell,
-  vfs_file_stat,
-  vfs_file_flush,
-  vfs_file_close,
-
-  vfs_file_opendir,
-  vfs_file_readdir,
-  vfs_file_seekdir,
-  vfs_file_rewinddir,
-  vfs_file_telldir,
-  vfs_file_closedir,
-
-  NULL
-};
+#include <sys/stat.h>
+#include <fcntl.h>
 
 const char *strip_protocol(const char *path)
 {
@@ -67,8 +33,9 @@ const char *strip_protocol(const char *path)
 
 struct vfs_file_descriptor *vfs_file_open(const char *filepath, int flags)
 {
+  const char *stripped_filepath = strip_protocol(filepath);
   struct stat buffer;
-  if (flags & O_EXCL && flags & O_CREAT && vfs_file_stat(filepath, &buffer) == 0)
+  if (flags & O_EXCL && flags & O_CREAT && stat(stripped_filepath, &buffer) == 0)
     return NULL;
 
   char mode[16];
@@ -88,7 +55,7 @@ struct vfs_file_descriptor *vfs_file_open(const char *filepath, int flags)
 
   mode[i] = '\0';
 
-  FILE *file = fopen(strip_protocol(filepath), mode);
+  FILE *file = fopen(stripped_filepath, mode);
   if (file)
   {
     struct vfs_file_descriptor *fp = malloc(sizeof(struct vfs_file_descriptor));
@@ -124,9 +91,14 @@ long int vfs_file_tell(struct vfs_file_descriptor *fp)
   return ftell((FILE *)fp->cls);
 }
 
-int vfs_file_stat(const char *filepath, struct stat *buffer)
+struct vfs_properties *vfs_file_stat(const char *filepath)
 {
-  return stat(strip_protocol(filepath), buffer);
+  // TODO name and hidden should be proper
+  struct stat buffer;
+  if (stat(strip_protocol(filepath), &buffer) == 0)
+    return (struct vfs_properties *)vfs_new_properties(NULL, 0, 0, NULL);
+  else
+    return NULL;
 }
 
 int vfs_file_flush(struct vfs_file_descriptor *fp)
@@ -155,9 +127,15 @@ struct vfs_directory_descriptor *vfs_file_opendir(const char *directorypath)
     return NULL;
 }
 
-struct dirent *vfs_file_readdir(struct vfs_directory_descriptor *dp)
+struct vfs_properties *vfs_file_readdir(struct vfs_directory_descriptor *dp)
 {
-  return readdir((DIR *)dp->cls);
+  // TODO hidden should be proper
+  struct dirent *d = readdir((DIR *)dp->cls);
+
+  if (d)
+    return (struct vfs_properties *)vfs_new_properties(d->d_name, 0, 0, NULL);
+  else
+    return NULL;
 }
 
 void vfs_file_seekdir(struct vfs_directory_descriptor *dp, long loc)
@@ -181,3 +159,24 @@ int vfs_file_closedir(struct vfs_directory_descriptor *dp)
   free(dp);
   return success;
 }
+
+const struct vfs_iohook vfs_file_iohooks =
+{
+  vfs_file_open,
+  vfs_file_read,
+  vfs_file_write,
+  vfs_file_seek,
+  vfs_file_tell,
+  vfs_file_stat,
+  vfs_file_flush,
+  vfs_file_close,
+
+  vfs_file_opendir,
+  vfs_file_readdir,
+  vfs_file_seekdir,
+  vfs_file_rewinddir,
+  vfs_file_telldir,
+  vfs_file_closedir,
+
+  NULL
+};
