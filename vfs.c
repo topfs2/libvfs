@@ -1,5 +1,5 @@
 /*
- *      Copyright (C) 2010 Tobias Arrskog
+ *      Copyright (C) 2010-2011 Tobias Arrskog
  *      https://github.com/topfs2/libvfs
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -20,215 +20,270 @@
  */
 
 #include "vfs.h"
-#include "vfs_file.h"
+#include "vfs_descriptors.h"
+#include "vfs_posix.h"
 #include <string.h>
 
 const int vfs_default_iohooks = vfs_file;
-
 const int vfs_all_iohooks = vfs_file;
-
-struct vfs_list_node
-{
-  char *protocol;
-  struct vfs_iohook *iohook;
-  struct vfs_list_node *next;
-};
 
 struct vfs_module
 {
-  enum vfs_available_iohooks flag;
-  struct vfs_list_node module;
+  const char *protocol;
+  struct vfs_iohook *iohook;
 };
 
-struct vfs_module vfs_static_vfs_modules[] =
+struct vfs_module_node
 {
-  { vfs_file,   { "file", &vfs_file_iohooks, NULL } },
-  { vfs_none,   { NULL, NULL, NULL } }
+  enum vfs_available_iohooks flag;
+  struct vfs_module module;
 };
 
-struct vfs_list_node *g_IOHookList = NULL;
-int g_IOHookListSize = 0;
+struct vfs_module_node vfs_static_vfs_modules[] =
+{
+  { vfs_file, { "file", &vfs_posix_iohooks } },
+  { vfs_none, { NULL,   NULL } }
+};
 
-int vfs_initialize_iohooks(int iohooks)
+/* Helper methods, should be moved later */
+struct vfs_module *vfs_create_module(const char *protocol, struct vfs_iohook *iohook)
+{
+  struct vfs_module *module = malloc(sizeof(struct vfs_module));
+
+  int len = strlen(protocol) + 1;
+
+  module->protocol = malloc(sizeof(char) * len);
+  strncpy((char *)module->protocol, protocol, len);
+  module->iohook = iohook;
+
+  return module;
+}
+
+struct vfs_iohook *vfs_find_iohooks(vfs_context ctx, const char *filepath)
+{
+  if (ctx)
+  {
+    struct vfs_module *li;
+    struct vfs_list_node *itr = vfs_list_begin(ctx->iohook_list);
+    FOREACH(itr, li)
+    {
+      if (strncmp(filepath, li->protocol, strlen(li->protocol)) == 0)
+        return li->iohook;
+    }
+  }
+
+  return NULL;
+}
+
+/* Normal methods which belongs in vfs.c */
+
+vfs_context vfs_initialize(int iohooks)
 {
   int failed = 0;
+  vfs_context ctx = malloc(sizeof(struct vfs_context_t));
+  ctx->iohook_list = vfs_list_create();
 
-  struct vfs_module *itr = vfs_static_vfs_modules;
+  struct vfs_module_node *itr = vfs_static_vfs_modules;
   while (itr->flag != vfs_none)
   {
-    if (!(itr->flag & iohooks && vfs_add_iohook(itr->module.protocol, itr->module.iohook) == 0))
+    if (!(itr->flag & iohooks && vfs_add_iohook(ctx, itr->module.protocol, itr->module.iohook) == 0))
       failed |= itr->flag;
 
     itr++;
   }
 
-  return failed;
+  return ctx;
 }
 
-int vfs_add_iohook(const char *protocol, struct vfs_iohook *iohook)
+int vfs_add_iohook(vfs_context ctx, const char *protocol, struct vfs_iohook *iohook)
 {
-  struct vfs_list_node *newNode = malloc(sizeof(struct vfs_list_node));
-  newNode->protocol = malloc(sizeof(char) * strlen(protocol));
-  strcpy(newNode->protocol, protocol);
-  newNode->iohook = malloc(sizeof(struct vfs_iohook));
-  *newNode->iohook = *iohook;
-
-  newNode->next = NULL;
-
-  if (g_IOHookList)
+  if (ctx)
   {
-    struct vfs_list_node *itr = g_IOHookList;
-    while (itr->next)
-      itr = itr->next;
+    struct vfs_module *module = vfs_create_module(protocol, iohook);
+    vfs_list_append(ctx->iohook_list, module);
 
-    itr->next = newNode;
+    return 0;
   }
-  else
-    g_IOHookList = newNode;
+
+  return 1;
+}
+
+vfs_file_descriptor vfs_open(vfs_context ctx, const char *filepath, int flags)
+{
+  struct vfs_iohook *iohook = vfs_find_iohooks(ctx, filepath);
+
+  if (iohook && iohook->open)
+  {
+    vfs_file_descriptor fp = malloc(sizeof(struct vfs_file_descriptor_t));
+
+    fp->fp      = iohook->open(filepath, flags);
+    fp->iohook  = iohook;
+
+    if (fp->fp)
+      return fp;
+    else
+      free(fp);
+  }
+
+  return NULL;
+}
+
+size_t vfs_read(vfs_file_descriptor fp, void *buffer, size_t size, size_t count)
+{
+  if (fp)
+  {
+    struct vfs_iohook *iohook = fp->iohook;
+
+    if (iohook && iohook->read)
+      return iohook->read(fp->fp, buffer, size, count);
+  }
+  return 0;
+}
+
+size_t vfs_write(vfs_file_descriptor fp, const void *buffer, size_t size, size_t count)
+{
+  if (fp)
+  {
+    struct vfs_iohook *iohook = fp->iohook;
+
+    if (iohook && iohook->write)
+      return iohook->write(fp->fp, buffer, size, count);
+  }
 
   return 0;
 }
 
-void vfs_handle_notifications(struct vfs_notification_callbacks *callbacks)
+int vfs_seek(vfs_file_descriptor fp, long int offset, int origin)
 {
+  if (fp)
+  {
+    struct vfs_iohook *iohook = fp->iohook;
+
+    if (iohook && iohook->seek)
+      return iohook->seek(fp->fp, offset, origin);
+  }
+
+  return 0;
 }
 
-void vfs_free_properties(struct vfs_properties *properties)
+long int vfs_tell(vfs_file_descriptor fp)
 {
-  if (properties)
+  if (fp)
   {
-    free((char *)properties->name);
-    struct vfs_metadata *itr = properties->extended_metadata;
+    struct vfs_iohook *iohook = fp->iohook;
 
-    while (itr)
-      itr = (struct vfs_metadata *)vfs_free_metadata(itr);
+    if (iohook && iohook->tell)
+      return iohook->tell(fp->fp);
+  }
 
-    free(properties);
+  return 0;
+}
+
+struct vfs_properties *vfs_stat(vfs_context ctx, const char *filepath)
+{
+  struct vfs_iohook *iohook = vfs_find_iohooks(ctx, filepath);
+
+  if (iohook && iohook->stat)
+    return iohook->stat(filepath);
+
+  return NULL;
+}
+
+int vfs_flush(vfs_file_descriptor fp)
+{
+  if (fp)
+  {
+    struct vfs_iohook *iohook = fp->iohook;
+
+    if (iohook && iohook->flush)
+      return iohook->flush(fp->fp);
+  }
+
+  return 0;
+}
+
+int vfs_close(vfs_file_descriptor fp)
+{
+  if (fp)
+  {
+    struct vfs_iohook *iohook = fp->iohook;
+
+    if (iohook && iohook->close)
+    {
+      int result = iohook->close(fp->fp);
+      free(fp);
+      return result;
+    }
+  }
+
+  return 0;
+}
+
+vfs_directory_descriptor vfs_opendir(vfs_context ctx, const char *directorypath)
+{
+  struct vfs_iohook *iohook = vfs_find_iohooks(ctx, directorypath);
+
+  if (iohook && iohook->opendir)
+  {
+    vfs_directory_descriptor dp = malloc(sizeof(struct vfs_directory_descriptor_t));
+
+    dp->dp          = iohook->opendir(directorypath);
+    dp->iohook      = iohook;
+
+    if (dp->dp)
+      return dp;
+    else
+      free(dp);
+  }
+
+  return NULL;
+}
+
+void vfs_readdir_sync(vfs_directory_descriptor dp, struct vfs_directory_callbacks callbacks, void *cls)
+{
+  if (dp)
+  {
+    struct vfs_iohook *iohook = dp->iohook;
+
+    if (iohook && iohook->readdir)
+      iohook->readdir(dp->dp, cls, callbacks);
   }
 }
 
-struct vfs_file_descriptor *vfs_open(const char *filepath, int flags)
+void vfs_readdir_async(vfs_directory_descriptor dp, struct vfs_directory_callbacks callbacks, void *cls)
 {
-  struct vfs_list_node *itr = g_IOHookList;
-  while (itr)
+  if (dp)
   {
-    if (strncmp(filepath, itr->protocol, strlen(itr->protocol)) == 0)
-      return itr->iohook->open(filepath, flags);
+    struct vfs_iohook *iohook = dp->iohook;
 
-    itr = itr->next;
+    if (iohook && iohook->readdir)
+      iohook->readdir(dp->dp, cls, callbacks);
+  }
+}
+
+int vfs_closedir(vfs_directory_descriptor dp)
+{
+  if (dp)
+  {
+    struct vfs_iohook *iohook = dp->iohook;
+
+    if (iohook && iohook->closedir)
+    {
+      int result = iohook->closedir(dp->dp);
+      free(dp);
+      return result;
+    }
   }
 
-  return vfs_file_iohooks.open(filepath, flags);
+  return 0;
 }
 
-size_t vfs_read(void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp)
+vfs_watchdog_descriptor vfs_add_watch(vfs_context ctx, const char *watchpath, struct vfs_notification_callbacks callbacks, void *cls)
 {
-  if (fp)
-    return fp->iohook.read(buffer, size, count, fp);
-  else
-    return 0;
+  return NULL;
 }
 
-size_t vfs_write(const void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp)
+int vfs_remove_watch(vfs_watchdog_descriptor wp)
 {
-  if (fp)
-    return fp->iohook.write(buffer, size, count, fp);
-  else
-    return 0;
-}
-
-int vfs_seek(struct vfs_file_descriptor *fp, long int offset, int origin)
-{
-  if (fp)
-    return fp->iohook.seek(fp, offset, origin);
-  else
-    return 0;
-}
-
-long int vfs_tell(struct vfs_file_descriptor *fp)
-{
-  if (fp)
-    return fp->iohook.tell(fp);
-  else
-    return 0;
-}
-
-int vfs_flush(struct vfs_file_descriptor *fp)
-{
-  if (fp)
-    return fp->iohook.flush(fp);
-  else
-    return 0;
-}
-
-struct vfs_properties *vfs_stat(const char *filepath)
-{
-  struct vfs_list_node *itr = g_IOHookList;
-  while (itr)
-  {
-    if (strncmp(filepath, itr->protocol, strlen(itr->protocol)) == 0)
-      return itr->iohook->stat(filepath);
-
-    itr = itr->next;
-  }
-
-  return vfs_file_iohooks.stat(filepath);
-}
-
-int vfs_close(struct vfs_file_descriptor *fp)
-{
-  if (fp)
-    return fp->iohook.close(fp);
-  else
-    return 0;
-}
-
-struct vfs_directory_descriptor *vfs_opendir(const char *directorypath)
-{
-  struct vfs_list_node *itr = g_IOHookList;
-  while (itr)
-  {
-    if (strncmp(directorypath, itr->protocol, strlen(itr->protocol)) == 0)
-      return itr->iohook->opendir(directorypath);
-
-    itr = itr->next;
-  }
-
-  return vfs_file_iohooks.opendir(directorypath);
-}
-
-struct vfs_properties *vfs_readdir(struct vfs_directory_descriptor *dp)
-{
-  if (dp)
-    return dp->iohook.readdir(dp);
-  else
-    return NULL;
-}
-
-void vfs_seekdir(struct vfs_directory_descriptor *dp, long loc)
-{
-  if (dp)
-    return dp->iohook.seekdir(dp, loc);
-}
-
-void vfs_rewinddir(struct vfs_directory_descriptor *dp)
-{
-  if (dp)
-    return dp->iohook.rewinddir(dp);
-}
-
-long vfs_telldir(struct vfs_directory_descriptor *dp)
-{
-  if (dp)
-    return dp->iohook.telldir(dp);
-  else
-    return 0;
-}
-
-int vfs_closedir(struct vfs_directory_descriptor *dp)
-{
-  if (dp)
-    return dp->iohook.closedir(dp);
-  else
-    return 0;
+  return 0;
 }

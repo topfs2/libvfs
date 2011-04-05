@@ -1,6 +1,6 @@
 #pragma once
 /*
- *      Copyright (C) 2010 Tobias Arrskog
+ *      Copyright (C) 2010-2011 Tobias Arrskog
  *      https://github.com/topfs2/libvfs
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -20,6 +20,32 @@
  *
  */
 
-#include "iohook.h"
+#include "vfs_iohook.h"
+#include "vfs_lists.h"
+#include <stdlib.h>
+#include <pthread.h>
 
-extern const struct vfs_iohook vfs_file_iohooks;
+struct vfs_context_t
+{
+  struct vfs_list *iohook_list;
+};
+
+struct vfs_file_descriptor_t
+{
+  void *fp;
+  struct vfs_iohook *iohook;
+};
+
+struct vfs_directory_descriptor_t
+{
+  void *dp;
+  struct vfs_iohook *iohook;
+
+  pthread_t readdir_thread;
+};
+
+struct vfs_watchdog_descriptor_t
+{
+  void *wp;
+  struct vfs_iohook *iohook;
+};

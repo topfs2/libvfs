@@ -1,6 +1,6 @@
 #pragma once
 /*
- *      Copyright (C) 2010 Tobias Arrskog
+ *      Copyright (C) 2010-2011 Tobias Arrskog
  *      https://github.com/topfs2/libvfs
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -20,21 +20,10 @@
  *
  */
 
-#include "iohook.h"
+#include "vfs_lists.h"
+#include "vfs_directory_hooks.h"
+#include "vfs_watchdog_hooks.h"
 #include <fcntl.h>
-
-typedef void (*vfs_file_added_hook)   (const char *file);
-typedef void (*vfs_file_removed_hook) (const char *file);
-typedef void (*vfs_file_updated_hook) (const char *file);
-typedef void (*vfs_file_moved_hook)   (const char *from, const char *to);
-
-struct vfs_notification_callbacks
-{
-  vfs_file_added_hook   file_added;
-  vfs_file_removed_hook file_removed;
-  vfs_file_updated_hook file_updated;
-  vfs_file_moved_hook   file_moved;
-};
 
 enum vfs_available_iohooks
 {
@@ -45,24 +34,35 @@ enum vfs_available_iohooks
 extern const int vfs_default_iohooks;
 extern const int vfs_all_iohooks;
 
-int vfs_initialize_iohooks(int iohooks);
-int vfs_add_iohook(const char *protocol, struct vfs_iohook *hook);
-void vfs_handle_notifications(struct vfs_notification_callbacks *callbacks);
+// The opaque structs
+typedef struct vfs_context_t *              vfs_context;
+typedef struct vfs_file_descriptor_t *      vfs_file_descriptor;
+typedef struct vfs_directory_descriptor_t * vfs_directory_descriptor;
+typedef struct vfs_watchdog_descriptor_t *  vfs_watchdog_descriptor;
 
-void                              vfs_free_properties(struct vfs_properties *properties);
+typedef struct vfs_readdir_control_t *      vfs_readdir_control;
 
-struct vfs_file_descriptor *      vfs_open      (const char *filepath, int flags);
-size_t                            vfs_read      (void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp);
-size_t                            vfs_write     (const void *buffer, size_t size, size_t count, struct vfs_file_descriptor *fp);
-int                               vfs_seek      (struct vfs_file_descriptor *fp, long int offset, int origin);
-long int                          vfs_tell      (struct vfs_file_descriptor *fp);
-struct vfs_properties *           vfs_stat      (const char *filepath);
-int                               vfs_flush     (struct vfs_file_descriptor *fp);
-int                               vfs_close     (struct vfs_file_descriptor *fp);
+struct vfs_iohook;
 
-struct vfs_directory_descriptor * vfs_opendir   (const char *directorypath);
-struct vfs_properties *           vfs_readdir   (struct vfs_directory_descriptor *dp);
-void                              vfs_seekdir   (struct vfs_directory_descriptor *dp, long loc);
-void                              vfs_rewinddir (struct vfs_directory_descriptor *dp);
-long                              vfs_telldir   (struct vfs_directory_descriptor *dp);
-int                               vfs_closedir  (struct vfs_directory_descriptor *dp);
+// Context methods
+vfs_context                       vfs_initialize      (int iohooks);
+int                               vfs_add_iohook      (vfs_context ctx, const char *protocol, struct vfs_iohook *hook);
+
+// File methods
+vfs_file_descriptor               vfs_open            (vfs_context ctx, const char *filepath, int flags);
+size_t                            vfs_read            (vfs_file_descriptor fp, void *buffer, size_t size, size_t count);
+size_t                            vfs_write           (vfs_file_descriptor fp, const void *buffer, size_t size, size_t count);
+int                               vfs_seek            (vfs_file_descriptor fp, long int offset, int origin);
+long int                          vfs_tell            (vfs_file_descriptor fp);
+struct vfs_properties *           vfs_stat            (vfs_context ctx, const char *filepath);
+int                               vfs_flush           (vfs_file_descriptor fp);
+int                               vfs_close           (vfs_file_descriptor fp);
+
+// Directory methods
+vfs_directory_descriptor          vfs_opendir         (vfs_context ctx, const char *directorypath);
+void                              vfs_readdir_sync    (vfs_directory_descriptor dp, struct vfs_directory_callbacks callbacks, void *cls);
+int                               vfs_closedir        (vfs_directory_descriptor dp);
+
+// Watchdog methods
+vfs_watchdog_descriptor           vfs_add_watch       (vfs_context ctx, const char *watchpath, struct vfs_notification_callbacks callbacks, void *cls);
+int                               vfs_remove_watch    (vfs_watchdog_descriptor wp);

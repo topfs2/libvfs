@@ -1,6 +1,6 @@
 #pragma once
 /*
- *      Copyright (C) 2010 Tobias Arrskog
+ *      Copyright (C) 2010-2011 Tobias Arrskog
  *      https://github.com/topfs2/libvfs
  *
  *  This Program is free software; you can redistribute it and/or modify
@@ -20,8 +20,19 @@
  *
  */
 
-#include "iohook.h"
+#include "vfs.h"
+#include <stdlib.h>
 
-struct vfs_metadata *  vfs_new_metadata(const char *key, const char *value);
-struct vfs_metadata *  vfs_free_metadata(struct vfs_metadata *metadata);
-struct vfs_properties *vfs_new_properties(const char *name, int size, int hidden, struct vfs_metadata *metadata);
+struct vfs_properties *properties;
+struct vfs_metadata *metadata;
+
+typedef int  (*vfs_directory_callback_item)         (void *cls, struct vfs_properties *properties);
+typedef int  (*vfs_directory_callback_item_update)  (void *cls, const char *file, struct vfs_metadata *extended_metadata);
+typedef void (*vfs_directory_callback_eof)          (void *cls);
+
+struct vfs_directory_callbacks
+{
+  vfs_directory_callback_item         item;
+  vfs_directory_callback_item_update  item_update;
+  vfs_directory_callback_eof          eof;
+};
